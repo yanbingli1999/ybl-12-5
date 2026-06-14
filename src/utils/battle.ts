@@ -1,7 +1,8 @@
 import type { 
   Ship, Enemy, Die, CabinType, DamageResult, BattleLogEntry,
-  GameConfig, AllocationResult, EnemyIntent
+  GameConfig, AllocationResult, EnemyIntent, BoardingState
 } from '../types';
+import { calculateBoardingProgress, calculateSuppression } from './boarding';
 
 export function calculateDamage(
   baseDamage: number,
@@ -135,6 +136,30 @@ export function calculateCabinEffect(
       };
       break;
     }
+    case 'boarding': {
+      const boardingProgress = calculateBoardingProgress(effectivePoints, cabin.level, config);
+      const suppression = calculateSuppression(Math.floor(effectivePoints / 2), cabin.level, config);
+      if (isOverheated) {
+        result = {
+          effect: '登舰舱过热！突击队无法出击',
+          value: 0,
+          type: 'effect',
+        };
+      } else if (enemy.shield > 0) {
+        result = {
+          effect: '敌方护盾未被击穿，无法登舰！',
+          value: 0,
+          type: 'effect',
+        };
+      } else {
+        result = {
+          effect: `派遣突击队登舰！登舰进度 +${boardingProgress}，压制 +${suppression}`,
+          value: boardingProgress,
+          type: 'effect',
+        };
+      }
+      break;
+    }
     default:
       result = { effect: '未知舱位', value: 0, type: 'effect' };
   }
@@ -154,7 +179,7 @@ export function checkOverheat(
 }
 
 export function getAllocations(dice: Die[]): AllocationResult[] {
-  const cabinTypes: CabinType[] = ['engine', 'shield', 'weapon', 'repair', 'scanner'];
+  const cabinTypes: CabinType[] = ['engine', 'shield', 'weapon', 'repair', 'scanner', 'boarding'];
   
   return cabinTypes.map(type => {
     const assignedDice = dice.filter(d => d.assignedTo === type);
@@ -264,7 +289,8 @@ export function executePlayerActions(
   dice: Die[],
   player: Ship,
   enemy: Enemy,
-  config: GameConfig
+  config: GameConfig,
+  boardingState?: BoardingState
 ): {
   logs: BattleLogEntry[];
   newPlayer: Ship;
@@ -274,6 +300,8 @@ export function executePlayerActions(
   totalShieldGained: number;
   damagedCabins: CabinType[];
   energyUsed: number;
+  boardingProgress: number;
+  boardingSuppression: number;
 } {
   const logs: BattleLogEntry[] = [];
   let newPlayer = { ...player };
@@ -284,6 +312,8 @@ export function executePlayerActions(
   const damagedCabins: CabinType[] = [];
   let playerEvasionBonus = 0;
   let enemyEvasionReduction = 0;
+  let boardingProgress = 0;
+  let boardingSuppression = 0;
 
   const totalDicePoints = dice.reduce((sum, d) => sum + d.value, 0);
   const energyCost = Math.floor(totalDicePoints * config.energyCostPerPoint);
@@ -414,6 +444,20 @@ export function executePlayerActions(
         }
         break;
       }
+      case 'boarding': {
+        if (!isOverheated && newEnemy.shield <= 0) {
+          const boardingCabin = player.cabins.find(c => c.type === 'boarding');
+          if (boardingCabin) {
+            boardingProgress += effect.value;
+            boardingSuppression += calculateSuppression(
+              Math.floor(allocation.totalPoints / 2),
+              boardingCabin.level,
+              config
+            );
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -445,6 +489,8 @@ export function executePlayerActions(
     totalShieldGained,
     damagedCabins,
     energyUsed: actualEnergyCost,
+    boardingProgress,
+    boardingSuppression,
   };
 }
 

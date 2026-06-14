@@ -1,4 +1,4 @@
-export type CabinType = 'engine' | 'shield' | 'weapon' | 'repair' | 'scanner';
+export type CabinType = 'engine' | 'shield' | 'weapon' | 'repair' | 'scanner' | 'boarding';
 
 export interface Die {
   id: string;
@@ -72,7 +72,7 @@ export interface Enemy {
   sprite: string;
 }
 
-export type BattleLogType = 'damage' | 'heal' | 'shield' | 'effect' | 'system' | 'crit' | 'miss';
+export type BattleLogType = 'damage' | 'heal' | 'shield' | 'effect' | 'system' | 'crit' | 'miss' | 'boarding';
 
 export interface BattleLogEntry {
   id: string;
@@ -99,6 +99,7 @@ export interface BattleState {
   startTime: number;
   endTime?: number;
   rewardPoints: number;
+  boardingState: BoardingState;
 }
 
 export interface GameConfig {
@@ -113,6 +114,11 @@ export interface GameConfig {
   maxRerolls: number;
   diceCount: number;
   enemyDamageVariance: number;
+  boardingProgressPerPoint: number;
+  boardingAlertPerTurn: number;
+  boardingSuppressionPerPoint: number;
+  boardingCounterAttackThreshold: number;
+  boardingSectionHpBase: number;
 }
 
 export interface Upgrade {
@@ -195,4 +201,36 @@ export interface DamageResult {
   shieldAbsorbed: number;
   isCrit: boolean;
   isMiss: boolean;
+}
+
+export type EnemySectionType = 'weapon_bay' | 'shield_gen' | 'engine_room' | 'repair_bay' | 'cargo_hold' | 'bridge';
+
+export interface EnemySection {
+  id: string;
+  name: string;
+  type: EnemySectionType;
+  hp: number;
+  maxHp: number;
+  destroyed: boolean;
+  effectDescription: string;
+  lootReward: number;
+}
+
+export interface BoardingLoot {
+  id: string;
+  name: string;
+  type: 'reward_points' | 'cabin_repair' | 'energy_cell';
+  value: number;
+  claimed: boolean;
+}
+
+export interface BoardingState {
+  available: boolean;
+  progress: number;
+  alertLevel: number;
+  suppression: number;
+  sections: EnemySection[];
+  assaultTeamSize: number;
+  loot: BoardingLoot[];
+  counterAttackPending: boolean;
 }

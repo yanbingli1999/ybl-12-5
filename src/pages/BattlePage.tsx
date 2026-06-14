@@ -7,6 +7,7 @@ import { EnemyIntent } from '../components/Ship/EnemyIntent';
 import { BattleLog } from '../components/BattleLog/BattleLog';
 import { FloatingText } from '../components/BattleLog/FloatingText';
 import { Modal } from '../components/UI/Modal';
+import { BoardingPanel } from '../components/Boarding/BoardingPanel';
 import { useGameStore } from '../store/useGameStore';
 import { useDiceStore } from '../store/useDiceStore';
 import { useShipStore } from '../store/useShipStore';
@@ -211,6 +212,8 @@ export const BattlePage: React.FC = () => {
               </button>
             </div>
           )}
+
+          <BoardingPanel />
         </div>
         
         <div className="space-y-4">

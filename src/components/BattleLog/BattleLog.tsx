@@ -15,6 +15,7 @@ const logColors: Record<BattleLogEntry['type'], string> = {
   system: 'text-gray-400',
   crit: 'text-neon-yellow',
   miss: 'text-gray-500',
+  boarding: 'text-neon-orange',
 };
 
 const logSourceColors: Record<BattleLogEntry['source'], string> = {

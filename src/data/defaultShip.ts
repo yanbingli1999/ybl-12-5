@@ -56,6 +56,17 @@ export const createDefaultCabins = (): Cabin[] => [
     description: '扫描敌方弱点，每点降低10%敌方闪避',
     icon: '📡',
   },
+  {
+    id: 'cabin_boarding',
+    type: 'boarding',
+    name: '登舰舱',
+    level: 1,
+    damaged: false,
+    cooldown: 0,
+    bonus: 0,
+    description: '派遣突击队登舰，每点+2登舰进度（需敌方护盾为空）',
+    icon: '🏴‍☠️',
+  },
 ];
 
 export const createDefaultShip = (): Ship => ({
@@ -211,5 +222,17 @@ export const createDefaultUpgrades = (): Upgrade[] => [
     currentLevel: 0,
     description: '扫描舱等级+1，削弱效果增强',
     cabinType: 'scanner',
+  },
+  {
+    id: 'upgrade_cabin_boarding',
+    name: '登舰舱强化',
+    type: 'cabin',
+    cost: 30,
+    costMultiplier: 1.8,
+    effect: 1,
+    maxLevel: 5,
+    currentLevel: 0,
+    description: '登舰舱等级+1，登舰效率增强',
+    cabinType: 'boarding',
   },
 ];

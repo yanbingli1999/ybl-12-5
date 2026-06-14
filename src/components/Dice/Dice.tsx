@@ -15,6 +15,7 @@ const diceColors: Record<CabinType | 'none', string> = {
   weapon: 'border-neon-red bg-neon-red/20 text-neon-red',
   repair: 'border-neon-green bg-neon-green/20 text-neon-green',
   scanner: 'border-neon-yellow bg-neon-yellow/20 text-neon-yellow',
+  boarding: 'border-neon-orange bg-neon-orange/20 text-neon-orange',
   none: 'border-space-600 bg-space-700 text-white',
 };
 

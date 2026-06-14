@@ -32,6 +32,7 @@ const cabinNames: Record<CabinType, string> = {
   weapon: '武器舱',
   repair: '维修舱',
   scanner: '扫描舱',
+  boarding: '登舰舱',
 };
 
 export const UpgradePage: React.FC = () => {

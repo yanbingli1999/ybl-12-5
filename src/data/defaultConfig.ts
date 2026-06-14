@@ -12,4 +12,9 @@ export const defaultConfig: GameConfig = {
   maxRerolls: 2,
   diceCount: 5,
   enemyDamageVariance: 0.2,
+  boardingProgressPerPoint: 2,
+  boardingAlertPerTurn: 10,
+  boardingSuppressionPerPoint: 3,
+  boardingCounterAttackThreshold: 80,
+  boardingSectionHpBase: 20,
 };

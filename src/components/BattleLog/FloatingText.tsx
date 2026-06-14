@@ -21,6 +21,7 @@ const textColors: Record<BattleLogEntry['type'], string> = {
   system: '#888888',
   crit: '#ffcc00',
   miss: '#666666',
+  boarding: '#ff9933',
 };
 
 export const FloatingText: React.FC<FloatingTextProps> = ({ logs }) => {

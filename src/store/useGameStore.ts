@@ -1,18 +1,27 @@
 import { create } from 'zustand';
-import type { 
-  BattleState, BattleRecord, BattleLogEntry, 
-  Enemy, ReplayData, ReplayAction
+import type {
+  BattleState, BattleRecord, BattleLogEntry,
+  Enemy, ReplayData, ReplayAction, BoardingLoot
 } from '../types';
 import { getRandomEnemy, generateEnemyIntent } from '../data/enemies';
 import { useShipStore } from './useShipStore';
 import { useDiceStore } from './useDiceStore';
 import { useConfigStore } from './useConfigStore';
-import { 
-  executePlayerActions, 
-  executeEnemyIntent, 
+import {
+  executePlayerActions,
+  executeEnemyIntent,
   checkBattleEnd,
   calculateReward,
 } from '../utils/battle';
+import {
+  initializeBoardingForBattle,
+  advanceBoardingTurn,
+  processCounterAttack,
+  processBoardingAttack,
+  applySectionEffects,
+  checkEnemySurrender,
+  applyLootReward,
+} from '../utils/boarding';
 import { addBattleRecord, loadBattleHistory, updateStats } from '../utils/storage';
 import { unassignAllDice } from '../utils/dice';
 
@@ -38,6 +47,8 @@ interface GameState {
   setReplaySpeed: (speed: number) => void;
   setDifficulty: (difficulty: number) => void;
   resetBattle: () => void;
+  attackBoardingSection: (sectionId: string, damage: number) => void;
+  claimBoardingLoot: (lootId: string) => void;
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -53,15 +64,16 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { currentDifficulty } = get();
     const shipStore = useShipStore.getState();
     const config = useConfigStore.getState().config;
-    
+
     shipStore.applyUpgradeEffects();
     const player = { ...shipStore.ship };
     player.hp = player.maxHp;
     player.shield = player.maxShield;
     player.energy = player.maxEnergy;
     player.cabins = player.cabins.map(c => ({ ...c, damaged: false, cooldown: 0 }));
-    
+
     const enemy = getRandomEnemy(currentDifficulty);
+    const boardingState = initializeBoardingForBattle(enemy, config);
     
     const battleState: BattleState = {
       id: `battle_${Date.now()}`,
@@ -80,6 +92,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       result: 'ongoing',
       startTime: Date.now(),
       rewardPoints: 0,
+      boardingState,
     };
     
     const replayData: ReplayData = {
@@ -114,34 +127,113 @@ export const useGameStore = create<GameState>((set, get) => ({
       preparedEnemy.defense = preparedEnemy.defense + 0.2;
     }
     
+    let boardingState = { ...battleState.boardingState };
+    boardingState.available = preparedEnemy.shield <= 0;
+
     const playerResult = executePlayerActions(
       dice,
       battleState.player,
       preparedEnemy,
-      config
+      config,
+      boardingState
     );
+
+    if (playerResult.boardingProgress > 0) {
+      boardingState.progress += playerResult.boardingProgress;
+      boardingState.suppression = Math.min(100, boardingState.suppression + playerResult.boardingSuppression);
+
+      const boardingLog: BattleLogEntry = {
+        id: `log_${Date.now()}_boarding`,
+        turn: battleState.turn,
+        type: 'boarding',
+        source: 'player',
+        message: `登舰进度 +${playerResult.boardingProgress}，压制 +${playerResult.boardingSuppression}`,
+        value: playerResult.boardingProgress,
+        timestamp: Date.now(),
+      };
+      playerResult.logs.push(boardingLog);
+
+      const damageFromProgress = playerResult.boardingProgress;
+      if (boardingState.progress >= 100) {
+        const undestroyedSections = boardingState.sections.filter(s => !s.destroyed);
+        if (undestroyedSections.length > 0) {
+          const targetSection = undestroyedSections[Math.floor(Math.random() * undestroyedSections.length)];
+          const attackResult = processBoardingAttack(
+            boardingState,
+            targetSection.id,
+            damageFromProgress,
+            battleState.turn
+          );
+          boardingState = attackResult.newState;
+          playerResult.logs.push(...attackResult.logs);
+
+          if (attackResult.sectionDestroyed) {
+            playerResult.newEnemy = applySectionEffects(playerResult.newEnemy, boardingState.sections);
+
+            if (checkEnemySurrender(boardingState.sections)) {
+              const surrenderLog: BattleLogEntry = {
+                id: `log_${Date.now()}_surrender`,
+                turn: battleState.turn,
+                type: 'boarding',
+                source: 'system',
+                message: '🏳️ 敌舰已投降！',
+                timestamp: Date.now(),
+              };
+              playerResult.logs.push(surrenderLog);
+            }
+          }
+        }
+        boardingState.progress = 0;
+      }
+    }
     
     let newState: BattleState = {
       ...battleState,
       player: playerResult.newPlayer,
       enemy: playerResult.newEnemy,
+      boardingState,
       logs: [...battleState.logs, ...playerResult.logs.map(l => ({ ...l, turn: battleState.turn }))],
     };
     
     const result = checkBattleEnd(newState.player, newState.enemy);
-    if (result !== 'ongoing') {
-      get().endBattle(result);
+    if (result !== 'ongoing' || checkEnemySurrender(newState.boardingState.sections)) {
+      get().endBattle(result !== 'ongoing' ? result : 'victory');
       return;
     }
     
     newState.phase = 'enemy';
+
+    if (newState.boardingState.counterAttackPending) {
+      const counterResult = processCounterAttack(
+        newState.boardingState,
+        newState.player,
+        config,
+        battleState.turn
+      );
+      newState.boardingState = counterResult.newState;
+      newState.player = counterResult.newPlayer;
+      newState.logs = [...newState.logs, ...counterResult.logs.map(l => ({ ...l, turn: battleState.turn }))];
+    }
+
+    const shieldGenDestroyed = newState.boardingState.sections.find(s => s.type === 'shield_gen')?.destroyed;
+    const repairBayDestroyed = newState.boardingState.sections.find(s => s.type === 'repair_bay')?.destroyed;
     
-    if (newState.enemy.intent.type === 'repair') {
+    if (newState.enemy.intent.type === 'repair' && !repairBayDestroyed) {
       const healAmount = newState.enemy.intent.value;
       newState.enemy = {
         ...newState.enemy,
         hp: Math.min(newState.enemy.maxHp, newState.enemy.hp + healAmount),
       };
+    } else if (newState.enemy.intent.type === 'repair' && repairBayDestroyed) {
+      const blockedLog: BattleLogEntry = {
+        id: `log_${Date.now()}_repair_blocked`,
+        turn: battleState.turn,
+        type: 'boarding',
+        source: 'system',
+        message: '维修舱已被摧毁，敌方无法维修！',
+        timestamp: Date.now(),
+      };
+      newState.logs = [...newState.logs, blockedLog];
     }
     
     const enemyResult = executeEnemyIntent(
@@ -214,20 +306,32 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     if (enemyResult.effect === 'heal_shield') {
-      const shieldAmount = Math.floor(newState.enemy.maxShield * 0.3);
-      newState.enemy = {
-        ...newState.enemy,
-        shield: Math.min(newState.enemy.maxShield, newState.enemy.shield + shieldAmount),
-      };
-      enemyResult.logs.push({
-        id: `log_${Date.now()}_shield`,
-        turn: battleState.turn,
-        type: 'shield',
-        source: 'enemy',
-        message: `敌方恢复 ${shieldAmount} 护盾`,
-        value: shieldAmount,
-        timestamp: Date.now(),
-      });
+      if (shieldGenDestroyed) {
+        const blockedLog: BattleLogEntry = {
+          id: `log_${Date.now()}_shield_blocked`,
+          turn: battleState.turn,
+          type: 'boarding',
+          source: 'system',
+          message: '护盾发生器已被摧毁，敌方无法恢复护盾！',
+          timestamp: Date.now(),
+        };
+        enemyResult.logs.push(blockedLog);
+      } else {
+        const shieldAmount = Math.floor(newState.enemy.maxShield * 0.3);
+        newState.enemy = {
+          ...newState.enemy,
+          shield: Math.min(newState.enemy.maxShield, newState.enemy.shield + shieldAmount),
+        };
+        enemyResult.logs.push({
+          id: `log_${Date.now()}_shield`,
+          turn: battleState.turn,
+          type: 'shield',
+          source: 'enemy',
+          message: `敌方恢复 ${shieldAmount} 护盾`,
+          value: shieldAmount,
+          timestamp: Date.now(),
+        });
+      }
     }
     
     enemyHp = enemyResult.newPlayerHp;
@@ -258,6 +362,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     
     newState.enemy = generateEnemyIntent(newState.enemy);
     
+    const boardingTurnResult = advanceBoardingTurn(
+      newState.boardingState,
+      newState.enemy,
+      config,
+      battleState.turn
+    );
+    newState.boardingState = boardingTurnResult.newState;
+    newState.logs = [...newState.logs, ...boardingTurnResult.logs.map(l => ({ ...l, turn: battleState.turn }))];
+
     const playerEvasionReset = useShipStore.getState().ship.evasion;
     newState.player = {
       ...newState.player,
@@ -313,16 +426,31 @@ export const useGameStore = create<GameState>((set, get) => ({
     const shipStore = useShipStore.getState();
     const config = useConfigStore.getState().config;
     
-    const reward = result === 'victory' 
+    let reward = result === 'victory'
       ? calculateReward(result, battleState.turn, get().currentDifficulty)
       : 0;
+
+    let finalPlayer = { ...battleState.player };
+    const unclaimedLoot = battleState.boardingState.loot.filter(l => !l.claimed);
+    if (result === 'victory' && unclaimedLoot.length > 0) {
+      for (const loot of unclaimedLoot) {
+        const lootResult = applyLootReward(loot, finalPlayer);
+        finalPlayer = lootResult.newPlayer;
+        reward += lootResult.rewardPoints;
+      }
+    }
     
     const newState: BattleState = {
       ...battleState,
+      player: finalPlayer,
       result,
       phase: 'ended',
       endTime: Date.now(),
       rewardPoints: reward,
+      boardingState: {
+        ...battleState.boardingState,
+        loot: battleState.boardingState.loot.map(l => ({ ...l, claimed: true })),
+      },
     };
     
     const newRecord: BattleRecord = {
@@ -365,7 +493,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       battleHistory: [newRecord, ...get().battleHistory],
     });
   },
-  
+
   addLog: (log) => {
     const { battleState } = get();
     if (!battleState) return;
@@ -447,6 +575,85 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ currentDifficulty: difficulty });
   },
   
+  attackBoardingSection: (sectionId: string, damage: number) => {
+    const { battleState } = get();
+    if (!battleState || battleState.phase !== 'player') return;
+    if (!battleState.boardingState.available) return;
+    if (battleState.boardingState.progress < 100) return;
+
+    const attackResult = processBoardingAttack(
+      battleState.boardingState,
+      sectionId,
+      damage,
+      battleState.turn
+    );
+
+    let newEnemy = battleState.enemy;
+    if (attackResult.sectionDestroyed) {
+      newEnemy = applySectionEffects(newEnemy, attackResult.newState.sections);
+    }
+
+    const newState: BattleState = {
+      ...battleState,
+      enemy: newEnemy,
+      boardingState: {
+        ...attackResult.newState,
+        progress: 0,
+      },
+      logs: [
+        ...battleState.logs,
+        ...attackResult.logs.map(l => ({ ...l, turn: battleState.turn })),
+      ],
+    };
+
+    if (checkEnemySurrender(newState.boardingState.sections)) {
+      set({ battleState: newState });
+      get().endBattle('victory');
+      return;
+    }
+
+    set({ battleState: newState });
+  },
+
+  claimBoardingLoot: (lootId: string) => {
+    const { battleState } = get();
+    if (!battleState) return;
+
+    const loot = battleState.boardingState.loot.find(l => l.id === lootId);
+    if (!loot || loot.claimed) return;
+
+    const shipStore = useShipStore.getState();
+    const result = applyLootReward(loot, battleState.player);
+
+    const newState: BattleState = {
+      ...battleState,
+      player: result.newPlayer,
+      boardingState: {
+        ...battleState.boardingState,
+        loot: battleState.boardingState.loot.map(l =>
+          l.id === lootId ? { ...l, claimed: true } : l
+        ),
+      },
+      logs: [
+        ...battleState.logs,
+        {
+          id: `log_${Date.now()}_loot_claim`,
+          turn: battleState.turn,
+          type: 'boarding',
+          source: 'player',
+          message: `🎁 领取战利品：${result.message}`,
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    if (result.rewardPoints > 0) {
+      shipStore.addRewardPoints(result.rewardPoints);
+    }
+
+    set({ battleState: newState });
+  },
+
   resetBattle: () => {
     set({
       battleState: null,

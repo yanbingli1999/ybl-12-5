@@ -10,6 +10,7 @@ interface CabinSlotProps {
   onDrop: (cabinType: CabinType, dieId: string) => void;
   onRemoveDie: (dieId: string) => void;
   disabled?: boolean;
+  boardingLocked?: boolean;
 }
 
 const cabinColors: Record<CabinType, { bg: string; border: string; text: string; icon: string }> = {
@@ -18,6 +19,7 @@ const cabinColors: Record<CabinType, { bg: string; border: string; text: string;
   weapon: { bg: 'bg-neon-red/10', border: 'border-neon-red', text: 'text-neon-red', icon: '⚔️' },
   repair: { bg: 'bg-neon-green/10', border: 'border-neon-green', text: 'text-neon-green', icon: '🔧' },
   scanner: { bg: 'bg-neon-yellow/10', border: 'border-neon-yellow', text: 'text-neon-yellow', icon: '📡' },
+  boarding: { bg: 'bg-neon-orange/10', border: 'border-neon-orange', text: 'text-neon-orange', icon: '🏴‍☠️' },
 };
 
 export const CabinSlot: React.FC<CabinSlotProps> = ({
@@ -27,14 +29,16 @@ export const CabinSlot: React.FC<CabinSlotProps> = ({
   onDrop,
   onRemoveDie,
   disabled,
+  boardingLocked,
 }) => {
   const colors = cabinColors[cabin.type];
   const { config } = useConfigStore();
   const isOverheated = totalPoints > config.overheatThreshold;
   const isDamaged = cabin.damaged;
+  const isLocked = disabled || isDamaged || boardingLocked;
 
   const handleDragOver = (e: React.DragEvent) => {
-    if (!disabled && !isDamaged) {
+    if (!isLocked) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
     }
@@ -42,7 +46,7 @@ export const CabinSlot: React.FC<CabinSlotProps> = ({
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (disabled || isDamaged) return;
+    if (isLocked) return;
     
     const dieId = e.dataTransfer.getData('dieId');
     if (dieId) {
@@ -59,7 +63,8 @@ export const CabinSlot: React.FC<CabinSlotProps> = ({
         ${colors.bg}
         ${isDamaged ? 'cabin-slot.damaged' : assignedDice.length > 0 ? 'cabin-slot.active' : ''}
         ${isOverheated ? 'ring-2 ring-neon-red' : ''}
-        ${disabled || isDamaged ? 'opacity-60 cursor-not-allowed' : 'hover:border-opacity-60 cursor-pointer'}
+        ${boardingLocked ? 'ring-1 ring-dashed ring-gray-500' : ''}
+        ${isLocked ? 'opacity-60 cursor-not-allowed' : 'hover:border-opacity-60 cursor-pointer'}
         transition-all duration-200
       `}
     >
@@ -74,11 +79,17 @@ export const CabinSlot: React.FC<CabinSlotProps> = ({
             <p className="text-xs text-gray-500">{cabin.description}</p>
           </div>
         </div>
-        
+
         {isDamaged && (
           <div className="flex items-center gap-1 text-neon-red">
             <AlertTriangle className="w-4 h-4 animate-pulse" />
             <span className="text-xs">损坏中 ({cabin.cooldown})</span>
+          </div>
+        )}
+
+        {boardingLocked && (
+          <div className="flex items-center gap-1 text-gray-400">
+            <span className="text-xs">🔒 需击穿护盾</span>
           </div>
         )}
         
