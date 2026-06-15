@@ -139,51 +139,42 @@ export const useGameStore = create<GameState>((set, get) => ({
     );
 
     if (playerResult.boardingProgress > 0) {
-      boardingState.progress += playerResult.boardingProgress;
-      boardingState.suppression = Math.min(100, boardingState.suppression + playerResult.boardingSuppression);
-
-      const boardingLog: BattleLogEntry = {
-        id: `log_${Date.now()}_boarding`,
-        turn: battleState.turn,
-        type: 'boarding',
-        source: 'player',
-        message: `登舰进度 +${playerResult.boardingProgress}，压制 +${playerResult.boardingSuppression}`,
-        value: playerResult.boardingProgress,
-        timestamp: Date.now(),
-      };
-      playerResult.logs.push(boardingLog);
-
-      const damageFromProgress = playerResult.boardingProgress;
       if (boardingState.progress >= 100) {
-        const undestroyedSections = boardingState.sections.filter(s => !s.destroyed);
-        if (undestroyedSections.length > 0) {
-          const targetSection = undestroyedSections[Math.floor(Math.random() * undestroyedSections.length)];
-          const attackResult = processBoardingAttack(
-            boardingState,
-            targetSection.id,
-            damageFromProgress,
-            battleState.turn
-          );
-          boardingState = attackResult.newState;
-          playerResult.logs.push(...attackResult.logs);
+        const blockedLog: BattleLogEntry = {
+          id: `log_${Date.now()}_boarding_blocked`,
+          turn: battleState.turn,
+          type: 'boarding',
+          source: 'system',
+          message: '登舰进度已满！请先选择敌舰舱段进行攻击',
+          timestamp: Date.now(),
+        };
+        playerResult.logs.push(blockedLog);
+      } else {
+        boardingState.progress = Math.min(100, boardingState.progress + playerResult.boardingProgress);
+        boardingState.suppression = Math.min(100, boardingState.suppression + playerResult.boardingSuppression);
 
-          if (attackResult.sectionDestroyed) {
-            playerResult.newEnemy = applySectionEffects(playerResult.newEnemy, boardingState.sections);
+        const boardingLog: BattleLogEntry = {
+          id: `log_${Date.now()}_boarding`,
+          turn: battleState.turn,
+          type: 'boarding',
+          source: 'player',
+          message: `登舰进度 +${playerResult.boardingProgress}，压制 +${playerResult.boardingSuppression}`,
+          value: playerResult.boardingProgress,
+          timestamp: Date.now(),
+        };
+        playerResult.logs.push(boardingLog);
 
-            if (checkEnemySurrender(boardingState.sections)) {
-              const surrenderLog: BattleLogEntry = {
-                id: `log_${Date.now()}_surrender`,
-                turn: battleState.turn,
-                type: 'boarding',
-                source: 'system',
-                message: '🏳️ 敌舰已投降！',
-                timestamp: Date.now(),
-              };
-              playerResult.logs.push(surrenderLog);
-            }
-          }
+        if (boardingState.progress >= 100) {
+          const readyLog: BattleLogEntry = {
+            id: `log_${Date.now()}_boarding_ready`,
+            turn: battleState.turn,
+            type: 'boarding',
+            source: 'system',
+            message: '🎯 登舰完成！点击敌舰舱段进行攻击',
+            timestamp: Date.now(),
+          };
+          playerResult.logs.push(readyLog);
         }
-        boardingState.progress = 0;
       }
     }
     

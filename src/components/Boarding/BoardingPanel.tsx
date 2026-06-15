@@ -11,13 +11,15 @@ export const BoardingPanel: React.FC = () => {
 
   if (!battleState) return null;
 
-  const { boardingState, enemy } = battleState;
+  const { boardingState, enemy, phase } = battleState;
   const isAvailable = boardingState.available;
+  const isPlayerPhase = phase === 'player';
   const netAlert = Math.max(0, boardingState.alertLevel - boardingState.suppression);
   const isDangerZone = netAlert >= config.boardingCounterAttackThreshold;
+  const canAttack = boardingState.progress >= 100 && isPlayerPhase;
 
   const handleAttackSection = (section: EnemySection) => {
-    if (boardingState.progress < 100 || section.destroyed) return;
+    if (boardingState.progress < 100 || section.destroyed || !isPlayerPhase) return;
     attackBoardingSection(section.id, boardingState.progress);
   };
 
@@ -149,9 +151,11 @@ export const BoardingPanel: React.FC = () => {
                 p-3 rounded-lg border transition-all
                 ${section.destroyed
                   ? 'bg-space-900/30 border-gray-700 opacity-60'
-                  : boardingState.progress >= 100
-                    ? 'bg-neon-orange/10 border-neon-orange/50 hover:border-neon-orange cursor-pointer'
-                    : 'bg-space-900/50 border-space-600'
+                  : canAttack
+                    ? 'bg-neon-orange/10 border-neon-orange/50 hover:border-neon-orange hover:scale-[1.02] cursor-pointer'
+                    : boardingState.progress >= 100
+                      ? 'bg-neon-orange/5 border-neon-orange/30 opacity-70'
+                      : 'bg-space-900/50 border-space-600'
                 }
               `}
               onClick={() => handleAttackSection(section)}
@@ -165,8 +169,10 @@ export const BoardingPanel: React.FC = () => {
                 </div>
                 {section.destroyed ? (
                   <span className="text-xs text-neon-green">✓ 已摧毁</span>
+                ) : canAttack ? (
+                  <span className="text-xs text-neon-orange animate-pulse">🎯 点击攻击 ({boardingState.progress}伤害)</span>
                 ) : boardingState.progress >= 100 ? (
-                  <span className="text-xs text-neon-orange animate-pulse">🎯 可攻击</span>
+                  <span className="text-xs text-gray-400">⏳ 等待你的回合</span>
                 ) : null}
               </div>
               {!section.destroyed && (
@@ -227,9 +233,11 @@ export const BoardingPanel: React.FC = () => {
       )}
 
       <div className="mt-4 text-xs text-gray-500 text-center">
-        {boardingState.progress >= 100
+        {canAttack
           ? '⚔️ 登舰完成！点击敌舰舱段进行攻击'
-          : '🎲 分配骰子到登舰舱以积累进度'}
+          : boardingState.progress >= 100
+            ? '⏳ 等待你的回合以发动攻击'
+            : '🎲 分配骰子到登舰舱以积累进度'}
       </div>
     </div>
   );
